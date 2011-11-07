@@ -33,7 +33,7 @@ depend()
 
 	config /etc/fstab
 	need net $pmap
-	use afc-client amd autofs openvpn
+	use afc-client amd autofs openvpn dhcpcd
 	use dns nfs nfsmount portmap rpcbind rpc.statd rpc.lockd
 	keyword -jail -prefix -vserver
 }
