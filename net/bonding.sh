@@ -23,6 +23,9 @@ bonding_pre_start()
 	eval primary="\$primary_${IFVAR}"
 	unset primary_${IFVAR}
 
+	eval subsume="\$subsume_${IFVAR}"
+	unset subsume_${IFVAR}
+
 
 	[ -z "${slaves}" ] && return 0
 
@@ -77,6 +80,7 @@ bonding_pre_start()
 	ebegin "Adding slaves to ${IFACE}"
 	eindent
 	einfo "${slaves}"
+	eoutdent
 
 	# Check that our slaves exist
 	(
@@ -84,17 +88,47 @@ bonding_pre_start()
 		_exists true || return 1
 	done
 
-	# Must force the slaves to a particular state before adding them
-	for IFACE in ${slaves}; do
-		_delete_addresses
-		_down
-	done
+	# Unless we are subsuming an existing interface (NFS root), we down
+	# slave interfaces to work around bugs supposedly in some chipsets
+	# that cause failure to enslave from other states.
+	if [ ! -n "${subsume}" ]; then
+		for IFACE in ${slaves}; do
+			_delete_addresses
+			_down
+		done
+	fi
 	)
 
-	# now force the master to up
-	_up
+	# Now force the master to up
+	#  - First test for interface subsume request (required for NFS root)
+	if [ -n "${subsume}" ]; then
+                einfo "Subsuming ${subsume} interface characteristics."
+                eindent
+                local oiface=${IFACE}
+                IFACE=${subsume}
+                local addr="$(_get_inet_address)"
+                einfo "address: ${addr}"
+                IFACE=${oiface}
+                unset oiface
+                eoutdent
+                # subsume (presumably kernel auto-)configured IP
+                /sbin/ifconfig ${IFACE} ${addr} up
+        else
+		# warn if root on nfs and no subsume interface supplied
+		local root_fs_type=$(mountinfo -s /)
+                if [ ${root_fs_type} == "nfs" ]; then
+			warn_nfs=1
+			ewarn "NFS root detected!!!"
+			ewarn " If your system crashes here, /etc/conf.d/net needs"
+			ewarn " subsume_${IFACE}=\"<iface>\" ... where <iface> is the"
+			ewarn " existing, (usually kernel auto-)configured interface."
+                fi
+                # up the interface
+                _up
+        fi
 
-	# finally add in slaves
+
+	# Finally add in slaves
 	eoutdent
 	if [ -d /sys/class/net ]; then
 		sys_bonding_path=/sys/class/net/"${IFACE}"/bonding
@@ -123,6 +157,12 @@ bonding_stop()
 	local slaves= s=
 	slaves=$( \
 		sed -n -e 's/^Slave Interface: //p' "/proc/net/bonding/${IFACE}" \
+
+	# Wipe subsumed interface
+	if [ -n "${subsume}" ]; then
+		/sbin/ifconfig ${subsume} 0.0.0.0
+	fi
+
 		| tr '\n' ' ' \
 	)
 	[ -z "${slaves}" ] && return 0
