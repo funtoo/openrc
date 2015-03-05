@@ -8,7 +8,7 @@ sysfs_opts=nodev,noexec,nosuid
 
 depend()
 {
-	keyword -lxc -prefix -vserver
+	keyword -lxc -openvz -prefix -vserver
 }
 
 mount_sys()
